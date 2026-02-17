@@ -3,7 +3,7 @@
  * Uses native CSS scroll-snap for smooth swiping with infinite loop support
  */
 
-const VERSION = '2.0.3';
+const VERSION = '2.1.0';
 
 class SwipeCardLite extends HTMLElement {
   constructor() {
@@ -261,31 +261,47 @@ class SwipeCardLite extends HTMLElement {
         .pagination {
           display: ${showPagination ? 'flex' : 'none'};
           justify-content: center;
-          gap: 8px;
-          padding: 8px;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 10px;
           position: absolute;
-          bottom: 8px;
+          bottom: 12px;
           left: 50%;
           transform: translateX(-50%);
-          transition: opacity 0.3s ease-out;
           z-index: 10;
           pointer-events: none;
+          /* No background by default - just dots */
+          background: transparent;
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
+          border-radius: 100px;
+          border: 1px solid transparent;
+          /* Smooth transition for pill appearing */
+          transition: opacity 0.3s ease-out, background 0.2s ease-out, border-color 0.2s ease-out, backdrop-filter 0.2s ease-out, -webkit-backdrop-filter 0.2s ease-out;
         }
         .pagination.hidden {
           opacity: 0;
         }
+        .pagination.scrolling {
+          /* Frosted pill appears while swiping */
+          background: rgba(255, 255, 255, 0.18);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+          border-color: rgba(255, 255, 255, 0.1);
+        }
         .pagination-dot {
-          width: 8px;
-          height: 8px;
+          width: 6px;
+          height: 6px;
           border-radius: 50%;
-          background: rgba(255,255,255,0.5);
+          background: rgba(255, 255, 255, 0.5);
           cursor: pointer;
-          transition: background-color 0.15s ease, transform 0.15s ease;
           pointer-events: auto;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+          /* Smooth transitions */
+          transition: background-color 0.2s ease, transform 0.2s ease, opacity 0.2s ease, filter 0.2s ease;
         }
         .pagination-dot.active {
-          background: var(--primary-color, #03a9f4);
+          background: rgba(255, 255, 255, 0.95);
           transform: scale(1.2);
         }
         .version-overlay {
@@ -383,6 +399,13 @@ class SwipeCardLite extends HTMLElement {
     if (this._jumping) return;
 
     this._showPagination();
+
+    // Add scrolling class for CarPlay-style frosted pill effect
+    const pagination = this.shadowRoot?.getElementById('pagination');
+    if (pagination && !pagination.classList.contains('scrolling')) {
+      pagination.classList.add('scrolling');
+    }
+
     if (this._scrollTimeout) clearTimeout(this._scrollTimeout);
 
     // Use longer timeout for slower devices
@@ -435,6 +458,10 @@ class SwipeCardLite extends HTMLElement {
     if (this._config.enable_reset_after) this._resetResetTimer();
     if (this._config.auto_hide_pagination > 0) this._startPaginationHideTimer();
 
+    // Remove scrolling class for CarPlay-style effect
+    const pagination = this.shadowRoot?.getElementById('pagination');
+    if (pagination) pagination.classList.remove('scrolling');
+
     // Clear user scrolling flag after state sync has time to propagate
     if (this._scrollSettleTimeout) clearTimeout(this._scrollSettleTimeout);
     this._scrollSettleTimeout = setTimeout(() => {
@@ -467,6 +494,9 @@ class SwipeCardLite extends HTMLElement {
         this._syncToStateEntity();
         if (this._config.enable_reset_after) this._resetResetTimer();
         if (this._config.auto_hide_pagination > 0) this._startPaginationHideTimer();
+        // Remove scrolling class for CarPlay-style effect
+        const pagination = this.shadowRoot?.getElementById('pagination');
+        if (pagination) pagination.classList.remove('scrolling');
       });
     });
   }
