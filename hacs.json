@@ -1,5 +1,6 @@
 {
   "name": "Swipe Card Lite",
   "render_readme": true,
-  "filename": "swipe-card-lite.js"
+  "filename": "swipe-card-lite.js",
+  "content_in_root": true
 }
