@@ -3,7 +3,7 @@
  * Uses native CSS scroll-snap for smooth swiping with infinite loop support
  */
 
-const VERSION = '2.2.0';
+const VERSION = '2.2.1';
 
 class SwipeCardLite extends HTMLElement {
   constructor() {
@@ -716,21 +716,10 @@ class SwipeCardLiteEditor extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this._config = {};
     this._hass = null;
-    this._editingCardIndex = null;
   }
 
   setConfig(config) {
-    this._config = {
-      ...config,
-      cards: config.cards || [],
-      show_pagination: config.show_pagination !== false,
-      loop_mode: config.loop_mode || 'none',
-      slide_width: config.slide_width || '',
-      slide_height: config.slide_height || '',
-      slide_padding: config.slide_padding || '',
-      border_radius: config.border_radius || '',
-      show_version: config.show_version || false,
-    };
+    this._config = { ...config };
     this._render();
   }
 
@@ -738,67 +727,68 @@ class SwipeCardLiteEditor extends HTMLElement {
     this._hass = hass;
   }
 
+  get hass() {
+    return this._hass;
+  }
+
+  _getCardTypeName(cardConfig) {
+    if (!cardConfig) return 'Not configured';
+    const type = cardConfig.type || 'unknown';
+    return type.replace('custom:', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
   _render() {
-    const showPagination = this._config.show_pagination !== false;
-    const infiniteLoop = this._config.loop_mode === 'infinite' || this._config.loop_mode === 'loopback';
     const cards = this._config.cards || [];
 
     this.shadowRoot.innerHTML = `
       <style>
-        .editor { padding: 16px; }
-        .section { margin-bottom: 16px; }
-        .section-title { font-weight: 500; margin-bottom: 8px; color: var(--primary-text-color); }
-        .option { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--divider-color); }
-        .option:last-child { border-bottom: none; }
-        .hint { font-size: 11px; color: var(--secondary-text-color); margin: -4px 0 8px 0; padding: 0; }
-        ha-textfield { width: 120px; }
-
-        .cards-section { margin-top: 16px; }
-        .card-item {
-          background: var(--card-background-color, var(--ha-card-background));
+        .editor {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .section {
           border: 1px solid var(--divider-color);
           border-radius: 8px;
-          margin-bottom: 8px;
-          overflow: hidden;
-        }
-        .card-header {
-          display: flex;
-          align-items: center;
           padding: 12px;
-          cursor: pointer;
-          user-select: none;
         }
-        .card-header:hover {
-          background: var(--secondary-background-color);
-        }
-        .card-index {
-          width: 24px;
-          height: 24px;
-          border-radius: 50%;
-          background: var(--primary-color);
-          color: var(--text-primary-color, white);
+        .section-title {
+          font-weight: 500;
+          margin-bottom: 12px;
           display: flex;
           align-items: center;
-          justify-content: center;
-          font-size: 12px;
-          font-weight: 500;
-          margin-right: 12px;
-          flex-shrink: 0;
+          gap: 8px;
+        }
+        .card-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 12px;
+          background: var(--secondary-background-color);
+          border-radius: 6px;
+          margin-bottom: 8px;
+        }
+        .card-item:last-child {
+          margin-bottom: 0;
+        }
+        .card-info {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex: 1;
+          cursor: pointer;
         }
         .card-type {
-          flex: 1;
           font-size: 14px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          color: var(--primary-text-color);
         }
         .card-actions {
           display: flex;
           gap: 4px;
         }
         .card-actions ha-icon-button {
-          --mdc-icon-button-size: 36px;
-          --mdc-icon-size: 20px;
+          --mdc-icon-button-size: 32px;
+          --mdc-icon-size: 18px;
         }
         .add-card {
           display: flex;
@@ -806,302 +796,252 @@ class SwipeCardLiteEditor extends HTMLElement {
           justify-content: center;
           padding: 12px;
           border: 2px dashed var(--divider-color);
-          border-radius: 8px;
+          border-radius: 6px;
           cursor: pointer;
           color: var(--secondary-text-color);
           transition: all 0.2s;
+          margin-top: 8px;
         }
         .add-card:hover {
           border-color: var(--primary-color);
           color: var(--primary-color);
         }
-        .add-card ha-icon {
-          margin-right: 8px;
+        .row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 4px 0;
+        }
+        .row label {
+          font-size: 14px;
+        }
+        ha-textfield {
+          width: 120px;
+        }
+        .hint {
+          font-size: 12px;
+          color: var(--secondary-text-color);
+          margin-top: 4px;
         }
       </style>
       <div class="editor">
+        <!-- Cards Section -->
         <div class="section">
-          <div class="section-title">Settings</div>
-
-          <div class="option">
-            <span>Show Pagination</span>
-            <ha-switch
-              id="show-pagination-switch"
-              data-key="show_pagination"
-            ></ha-switch>
+          <div class="section-title">
+            <ha-icon icon="mdi:cards-outline"></ha-icon>
+            Slides
           </div>
-
-          <div class="option">
-            <span>Infinite Loop</span>
-            <ha-switch
-              id="infinite-loop-switch"
-            ></ha-switch>
-          </div>
-
-          <div class="option">
-            <span>Auto-hide Pagination (ms)</span>
-            <ha-textfield
-              id="auto-hide-field"
-              type="number"
-              min="0"
-              data-key="auto_hide_pagination"
-            ></ha-textfield>
-          </div>
-
-          <div class="option">
-            <span>Reset Timeout (ms)</span>
-            <ha-textfield
-              id="reset-timeout-field"
-              type="number"
-              min="0"
-            ></ha-textfield>
-          </div>
-
-          <div class="option">
-            <span>Auto-Reset Toggle</span>
-            <ha-textfield
-              id="auto-reset-entity-field"
-              data-key="auto_reset_enabled_entity"
-              placeholder="input_boolean.xxx"
-            ></ha-textfield>
-          </div>
-          <div class="hint">Boolean entity to pause auto-reset (off = paused)</div>
-
-          <div class="option">
-            <span>Slide Width (CSS)</span>
-            <ha-textfield
-              id="slide-width-field"
-              data-key="slide_width"
-              placeholder="100%"
-            ></ha-textfield>
-          </div>
-
-          <div class="option">
-            <span>Slide Height (CSS)</span>
-            <ha-textfield
-              id="slide-height-field"
-              data-key="slide_height"
-              placeholder="auto"
-            ></ha-textfield>
-          </div>
-
-          <div class="option">
-            <span>Slide Padding</span>
-            <ha-textfield
-              id="slide-padding-field"
-              data-key="slide_padding"
-              placeholder="0"
-            ></ha-textfield>
-          </div>
-          <div class="hint">Inner spacing inside each slide (always visible)</div>
-
-          <div class="option">
-            <span>Slide Gap</span>
-            <ha-textfield
-              id="slide-gap-field"
-              data-key="slide_gap"
-              placeholder="0"
-            ></ha-textfield>
-          </div>
-          <div class="hint">Space between slides (visible only while swiping)</div>
-
-          <div class="option">
-            <span>Border Radius</span>
-            <ha-textfield
-              id="border-radius-field"
-              data-key="border_radius"
-              placeholder="0"
-            ></ha-textfield>
-          </div>
-
-          <div class="option">
-            <span>Show Version</span>
-            <ha-switch
-              id="show-version-switch"
-              data-key="show_version"
-            ></ha-switch>
-          </div>
-        </div>
-
-        <div class="cards-section">
-          <div class="section-title">Cards (${cards.length})</div>
           <div id="cards-list">
-            ${cards.map((card, index) => this._renderCardItem(card, index)).join('')}
+            ${cards.map((card, i) => `
+              <div class="card-item" data-index="${i}">
+                <div class="card-info" data-action="edit" data-index="${i}">
+                  <ha-icon icon="mdi:drag-vertical"></ha-icon>
+                  <span class="card-type">${this._getCardTypeName(card)}</span>
+                </div>
+                <div class="card-actions">
+                  <ha-icon-button data-action="move-up" data-index="${i}" ${i === 0 ? 'disabled' : ''}>
+                    <ha-icon icon="mdi:arrow-up"></ha-icon>
+                  </ha-icon-button>
+                  <ha-icon-button data-action="move-down" data-index="${i}" ${i === cards.length - 1 ? 'disabled' : ''}>
+                    <ha-icon icon="mdi:arrow-down"></ha-icon>
+                  </ha-icon-button>
+                  <ha-icon-button data-action="delete" data-index="${i}">
+                    <ha-icon icon="mdi:delete"></ha-icon>
+                  </ha-icon-button>
+                </div>
+              </div>
+            `).join('')}
           </div>
           <div class="add-card" id="add-card">
             <ha-icon icon="mdi:plus"></ha-icon>
             <span>Add Card</span>
           </div>
         </div>
-      </div>
-    `;
 
-    // Set initial values for settings controls
-    const showPaginationSwitch = this.shadowRoot.getElementById('show-pagination-switch');
-    const infiniteLoopSwitch = this.shadowRoot.getElementById('infinite-loop-switch');
-    const autoHideField = this.shadowRoot.getElementById('auto-hide-field');
-    const resetTimeoutField = this.shadowRoot.getElementById('reset-timeout-field');
+        <!-- Behavior Section -->
+        <div class="section">
+          <div class="section-title">
+            <ha-icon icon="mdi:gesture-swipe-horizontal"></ha-icon>
+            Behavior
+          </div>
 
-    if (showPaginationSwitch) {
-      showPaginationSwitch.checked = showPagination;
-      showPaginationSwitch.addEventListener('change', (e) => this._settingChanged(e));
-    }
+          <div class="row">
+            <label>Infinite loop</label>
+            <ha-switch id="infinite_loop" ${this._config.loop_mode === 'infinite' ? 'checked' : ''}></ha-switch>
+          </div>
 
-    if (infiniteLoopSwitch) {
-      infiniteLoopSwitch.checked = infiniteLoop;
-      infiniteLoopSwitch.addEventListener('change', (e) => this._loopChanged(e));
-    }
+          <div class="row">
+            <label>Show pagination</label>
+            <ha-switch id="show_pagination" ${this._config.show_pagination !== false ? 'checked' : ''}></ha-switch>
+          </div>
 
-    if (autoHideField) {
-      autoHideField.value = this._config.auto_hide_pagination || 0;
-      autoHideField.addEventListener('change', (e) => this._settingChanged(e));
-    }
+          <div class="row">
+            <label>Auto-hide pagination (ms)</label>
+            <ha-textfield id="auto_hide_pagination" type="number" value="${this._config.auto_hide_pagination || 0}"></ha-textfield>
+          </div>
+          <div class="hint">0 = always visible</div>
 
-    if (resetTimeoutField) {
-      resetTimeoutField.value = this._config.enable_reset_after ? (this._config.reset_after_timeout || 30000) : 0;
-      resetTimeoutField.addEventListener('change', (e) => this._resetTimeoutChanged(e));
-    }
+          <div class="row" style="margin-top: 8px;">
+            <label>Reset timeout (ms)</label>
+            <ha-textfield id="reset_after_timeout" type="number" value="${this._config.enable_reset_after ? (this._config.reset_after_timeout || 30000) : 0}"></ha-textfield>
+          </div>
+          <div class="hint">0 = disabled. Returns to first slide after timeout</div>
 
-    const autoResetEntityField = this.shadowRoot.getElementById('auto-reset-entity-field');
-    if (autoResetEntityField) {
-      autoResetEntityField.value = this._config.auto_reset_enabled_entity || '';
-      autoResetEntityField.addEventListener('change', (e) => this._settingChanged(e));
-    }
+          <div class="row" style="margin-top: 8px;">
+            <label>Auto-reset toggle entity</label>
+            <ha-textfield id="auto_reset_enabled_entity" value="${this._config.auto_reset_enabled_entity || ''}" placeholder="input_boolean.xxx"></ha-textfield>
+          </div>
+          <div class="hint">Entity to enable/disable auto-reset</div>
+        </div>
 
-    const slideWidthField = this.shadowRoot.getElementById('slide-width-field');
-    if (slideWidthField) {
-      slideWidthField.value = this._config.slide_width || '';
-      slideWidthField.addEventListener('change', (e) => this._settingChanged(e));
-    }
+        <!-- Layout Section -->
+        <div class="section">
+          <div class="section-title">
+            <ha-icon icon="mdi:ruler-square"></ha-icon>
+            Layout
+          </div>
 
-    const slideHeightField = this.shadowRoot.getElementById('slide-height-field');
-    if (slideHeightField) {
-      slideHeightField.value = this._config.slide_height || '';
-      slideHeightField.addEventListener('change', (e) => this._settingChanged(e));
-    }
+          <div class="row">
+            <label>Slide width</label>
+            <ha-textfield id="slide_width" value="${this._config.slide_width || ''}" placeholder="100%"></ha-textfield>
+          </div>
 
-    const slidePaddingField = this.shadowRoot.getElementById('slide-padding-field');
-    if (slidePaddingField) {
-      slidePaddingField.value = this._config.slide_padding || '';
-      slidePaddingField.addEventListener('change', (e) => this._settingChanged(e));
-    }
+          <div class="row">
+            <label>Slide height</label>
+            <ha-textfield id="slide_height" value="${this._config.slide_height || ''}" placeholder="auto"></ha-textfield>
+          </div>
 
-    const slideGapField = this.shadowRoot.getElementById('slide-gap-field');
-    if (slideGapField) {
-      slideGapField.value = this._config.slide_gap || '';
-      slideGapField.addEventListener('change', (e) => this._settingChanged(e));
-    }
+          <div class="row">
+            <label>Slide padding</label>
+            <ha-textfield id="slide_padding" value="${this._config.slide_padding || ''}" placeholder="0"></ha-textfield>
+          </div>
 
-    const borderRadiusField = this.shadowRoot.getElementById('border-radius-field');
-    if (borderRadiusField) {
-      borderRadiusField.value = this._config.border_radius || '';
-      borderRadiusField.addEventListener('change', (e) => this._settingChanged(e));
-    }
+          <div class="row">
+            <label>Slide gap</label>
+            <ha-textfield id="slide_gap" value="${this._config.slide_gap || ''}" placeholder="0"></ha-textfield>
+          </div>
 
-    const showVersionSwitch = this.shadowRoot.getElementById('show-version-switch');
-    if (showVersionSwitch) {
-      showVersionSwitch.checked = this._config.show_version || false;
-      showVersionSwitch.addEventListener('change', (e) => this._settingChanged(e));
-    }
-
-    // Attach event listeners
-    this.shadowRoot.getElementById('add-card')?.addEventListener('click', () => this._addCard());
-
-    this.shadowRoot.querySelectorAll('.card-header').forEach(header => {
-      header.addEventListener('click', (e) => {
-        if (!e.target.closest('ha-icon-button')) {
-          const index = parseInt(header.dataset.index);
-          this._toggleCardEditor(index);
-        }
-      });
-    });
-
-    this.shadowRoot.querySelectorAll('.move-up').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._moveCard(parseInt(btn.dataset.index), -1);
-      });
-    });
-
-    this.shadowRoot.querySelectorAll('.move-down').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._moveCard(parseInt(btn.dataset.index), 1);
-      });
-    });
-
-    this.shadowRoot.querySelectorAll('.delete-card').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._deleteCard(parseInt(btn.dataset.index));
-      });
-    });
-  }
-
-  _renderCardItem(card, index) {
-    const cardType = card.type || 'unknown';
-    const cards = this._config.cards || [];
-
-    return `
-      <div class="card-item">
-        <div class="card-header" data-index="${index}">
-          <div class="card-index">${index + 1}</div>
-          <div class="card-type">${cardType}</div>
-          <div class="card-actions">
-            <ha-icon-button class="move-up" data-index="${index}" ${index === 0 ? 'disabled' : ''}>
-              <ha-icon icon="mdi:arrow-up"></ha-icon>
-            </ha-icon-button>
-            <ha-icon-button class="move-down" data-index="${index}" ${index === cards.length - 1 ? 'disabled' : ''}>
-              <ha-icon icon="mdi:arrow-down"></ha-icon>
-            </ha-icon-button>
-            <ha-icon-button class="delete-card" data-index="${index}">
-              <ha-icon icon="mdi:delete"></ha-icon>
-            </ha-icon-button>
+          <div class="row">
+            <label>Border radius</label>
+            <ha-textfield id="border_radius" value="${this._config.border_radius || ''}" placeholder="0"></ha-textfield>
           </div>
         </div>
       </div>
     `;
+
+    this._attachEventListeners();
+  }
+
+  _attachEventListeners() {
+    // Add card
+    this.shadowRoot.getElementById('add-card')?.addEventListener('click', () => {
+      this._addCard();
+    });
+
+    // Card actions
+    this.shadowRoot.querySelectorAll('[data-action]').forEach(el => {
+      el.addEventListener('click', () => {
+        const action = el.dataset.action;
+        const index = parseInt(el.dataset.index);
+
+        if (action === 'edit') {
+          this._openCardEditor(index);
+        } else if (action === 'delete') {
+          const cards = [...(this._config.cards || [])];
+          cards.splice(index, 1);
+          this._config = { ...this._config, cards };
+          this._fireConfigChanged();
+          this._render();
+        } else if (action === 'move-up' && index > 0) {
+          const cards = [...(this._config.cards || [])];
+          [cards[index - 1], cards[index]] = [cards[index], cards[index - 1]];
+          this._config = { ...this._config, cards };
+          this._fireConfigChanged();
+          this._render();
+        } else if (action === 'move-down' && index < (this._config.cards?.length || 0) - 1) {
+          const cards = [...(this._config.cards || [])];
+          [cards[index], cards[index + 1]] = [cards[index + 1], cards[index]];
+          this._config = { ...this._config, cards };
+          this._fireConfigChanged();
+          this._render();
+        }
+      });
+    });
+
+    // Behavior settings
+    this.shadowRoot.getElementById('infinite_loop')?.addEventListener('change', (e) => {
+      this._config = { ...this._config, loop_mode: e.target.checked ? 'infinite' : 'none' };
+      this._fireConfigChanged();
+    });
+
+    this.shadowRoot.getElementById('show_pagination')?.addEventListener('change', (e) => {
+      this._config = { ...this._config, show_pagination: e.target.checked };
+      this._fireConfigChanged();
+    });
+
+    this.shadowRoot.getElementById('auto_hide_pagination')?.addEventListener('change', (e) => {
+      this._config = { ...this._config, auto_hide_pagination: parseInt(e.target.value) || 0 };
+      this._fireConfigChanged();
+    });
+
+    this.shadowRoot.getElementById('reset_after_timeout')?.addEventListener('change', (e) => {
+      const value = parseInt(e.target.value) || 0;
+      this._config = {
+        ...this._config,
+        enable_reset_after: value > 0,
+        reset_after_timeout: value > 0 ? value : 30000
+      };
+      this._fireConfigChanged();
+    });
+
+    this.shadowRoot.getElementById('auto_reset_enabled_entity')?.addEventListener('change', (e) => {
+      this._config = { ...this._config, auto_reset_enabled_entity: e.target.value || null };
+      this._fireConfigChanged();
+    });
+
+    // Layout settings
+    ['slide_width', 'slide_height', 'slide_padding', 'slide_gap', 'border_radius'].forEach(key => {
+      this.shadowRoot.getElementById(key)?.addEventListener('change', (e) => {
+        this._config = { ...this._config, [key]: e.target.value.trim() || null };
+        this._fireConfigChanged();
+      });
+    });
   }
 
   async _openCardEditor(index) {
-    const cardConfig = this._config.cards[index];
-    const hass = this._hass;
+    const cardConfig = this._config.cards?.[index];
     const homeAssistant = document.querySelector('home-assistant');
 
-    if (!hass || !homeAssistant) {
+    if (!this._hass || !homeAssistant) {
       console.error('[swipe-card-lite] Cannot find Home Assistant instance');
       return;
     }
 
     try {
-      // Wait for the dialog element to be defined
       await customElements.whenDefined('hui-dialog-edit-card');
 
-      // Create the dialog element
       const dialog = document.createElement('hui-dialog-edit-card');
-      dialog.hass = hass;
+      dialog.hass = this._hass;
       document.body.appendChild(dialog);
 
-      // Handle dialog close
       const handleClose = () => {
         dialog.removeEventListener('dialog-closed', handleClose);
         if (dialog.parentNode === document.body) {
           document.body.removeChild(dialog);
         }
-        this._render(); // Re-render to update card type display
+        this._render();
       };
       dialog.addEventListener('dialog-closed', handleClose);
 
-      // Open the dialog with card config
       await dialog.showDialog({
         cardConfig: cardConfig,
         lovelaceConfig: homeAssistant.lovelace?.config || { views: [] },
         saveCardConfig: async (newConfig) => {
           if (!newConfig) return;
 
-          const newCards = [...this._config.cards];
-          newCards[index] = newConfig;
-          this._config = { ...this._config, cards: newCards };
+          const cards = [...(this._config.cards || [])];
+          cards[index] = newConfig;
+          this._config = { ...this._config, cards };
           this._fireConfigChanged();
           this._render();
         }
@@ -1111,73 +1051,13 @@ class SwipeCardLiteEditor extends HTMLElement {
     }
   }
 
-  _toggleCardEditor(index) {
-    this._openCardEditor(index);
-  }
-
   async _addCard() {
     const newCard = { type: 'markdown', content: 'New card' };
     const newCards = [...(this._config.cards || []), newCard];
     this._config = { ...this._config, cards: newCards };
     this._fireConfigChanged();
     this._render();
-    // Open the editor for the new card
     setTimeout(() => this._openCardEditor(newCards.length - 1), 100);
-  }
-
-  _moveCard(index, direction) {
-    const newIndex = index + direction;
-    const cards = [...this._config.cards];
-    if (newIndex < 0 || newIndex >= cards.length) return;
-
-    [cards[index], cards[newIndex]] = [cards[newIndex], cards[index]];
-
-    this._config = { ...this._config, cards };
-    this._fireConfigChanged();
-    this._render();
-  }
-
-  _deleteCard(index) {
-    const cards = [...this._config.cards];
-    cards.splice(index, 1);
-
-    this._config = { ...this._config, cards };
-    this._fireConfigChanged();
-    this._render();
-  }
-
-  _settingChanged(e) {
-    const key = e.target.dataset.key;
-    let value = e.target.value;
-
-    if (e.target.tagName === 'HA-SWITCH') {
-      value = e.target.checked;
-    } else if (key === 'auto_hide_pagination') {
-      value = parseInt(value, 10) || 0;
-    } else if (key === 'slide_width' || key === 'slide_height' || key === 'slide_padding' || key === 'border_radius') {
-      value = value.trim() || null;
-    }
-
-    this._config = { ...this._config, [key]: value };
-    this._fireConfigChanged();
-  }
-
-  _loopChanged(e) {
-    this._config = {
-      ...this._config,
-      loop_mode: e.target.checked ? 'infinite' : 'none'
-    };
-    this._fireConfigChanged();
-  }
-
-  _resetTimeoutChanged(e) {
-    const value = parseInt(e.target.value, 10) || 0;
-    this._config = {
-      ...this._config,
-      enable_reset_after: value > 0,
-      reset_after_timeout: value > 0 ? value : 30000
-    };
-    this._fireConfigChanged();
   }
 
   _fireConfigChanged() {
