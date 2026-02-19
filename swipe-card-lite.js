@@ -3,7 +3,7 @@
  * Uses native CSS scroll-snap for smooth swiping with infinite loop support
  */
 
-const VERSION = '2.3.3';
+const VERSION = '2.3.4';
 
 class SwipeCardLite extends HTMLElement {
   constructor() {
@@ -779,6 +779,9 @@ class SwipeCardLiteEditor extends HTMLElement {
 
   _render() {
     const cards = this._config.cards || [];
+
+    // Clear cached form reference since innerHTML will destroy it
+    this._entityForm = null;
 
     this.innerHTML = `
       <style>
