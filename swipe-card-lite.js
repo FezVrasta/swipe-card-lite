@@ -3,7 +3,7 @@
  * Uses native CSS scroll-snap for smooth swiping with infinite loop support
  */
 
-const VERSION = '2.3.0';
+const VERSION = '2.3.3';
 
 class SwipeCardLite extends HTMLElement {
   constructor() {
@@ -709,67 +709,66 @@ class SwipeCardLite extends HTMLElement {
   }
 }
 
-// Editor - No shadow DOM to allow ha-entity-picker to render correctly
+// Editor - Using ha-form like tado-thermostat-card
 class SwipeCardLiteEditor extends HTMLElement {
   constructor() {
     super();
     this._config = {};
     this._hass = null;
+    this._entityForm = null;
   }
 
   setConfig(config) {
     this._config = { ...config };
+    // Update form data if it exists, otherwise render
+    if (this._entityForm) {
+      this._entityForm.data = this._config;
+    }
     this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
-    // Update entity pickers when hass becomes available
-    this._updateEntityPickers();
-  }
-
-  _updateEntityPickers() {
-    if (!this._hass) return;
-
-    // Create state entity picker
-    const stateContainer = this.querySelector('#state_entity_container');
-    if (stateContainer && !stateContainer.querySelector('ha-entity-picker')) {
-      const picker = document.createElement('ha-entity-picker');
-      picker.hass = this._hass;
-      picker.value = this._config.state_entity || '';
-      picker.includeDomains = ['input_number'];
-      picker.allowCustomEntity = true;
-      picker.addEventListener('value-changed', (e) => {
-        this._config = { ...this._config, state_entity: e.detail.value || null };
-        this._fireConfigChanged();
-      });
-      stateContainer.appendChild(picker);
-    } else if (stateContainer) {
-      const picker = stateContainer.querySelector('ha-entity-picker');
-      if (picker) picker.hass = this._hass;
-    }
-
-    // Create auto-reset entity picker
-    const autoResetContainer = this.querySelector('#auto_reset_entity_container');
-    if (autoResetContainer && !autoResetContainer.querySelector('ha-entity-picker')) {
-      const picker = document.createElement('ha-entity-picker');
-      picker.hass = this._hass;
-      picker.value = this._config.auto_reset_enabled_entity || '';
-      picker.includeDomains = ['input_boolean', 'binary_sensor', 'switch'];
-      picker.allowCustomEntity = true;
-      picker.addEventListener('value-changed', (e) => {
-        this._config = { ...this._config, auto_reset_enabled_entity: e.detail.value || null };
-        this._fireConfigChanged();
-      });
-      autoResetContainer.appendChild(picker);
-    } else if (autoResetContainer) {
-      const picker = autoResetContainer.querySelector('ha-entity-picker');
-      if (picker) picker.hass = this._hass;
+    // Update form hass if it exists, otherwise render
+    if (this._entityForm) {
+      this._entityForm.hass = hass;
+    } else if (this._config) {
+      this._render();
     }
   }
 
   get hass() {
     return this._hass;
+  }
+
+  _createEntityForm() {
+    if (this._entityForm || !this._hass) return;
+
+    const form = document.createElement('ha-form');
+    form.hass = this._hass;
+    form.data = this._config;
+    form.schema = [
+      {
+        name: 'state_entity',
+        label: 'State entity',
+        selector: { entity: { domain: 'input_number' } }
+      },
+      {
+        name: 'auto_reset_enabled_entity',
+        label: 'Auto-reset toggle entity',
+        selector: { entity: { domain: ['input_boolean', 'binary_sensor', 'switch'] } }
+      }
+    ];
+    form.computeLabel = (schema) => schema.label || schema.name;
+
+    form.addEventListener('value-changed', (e) => {
+      const newData = e.detail.value;
+      this._config = { ...this._config, ...newData };
+      this._fireConfigChanged();
+    });
+
+    this._entityForm = form;
+    return form;
   }
 
   _getCardTypeName(cardConfig) {
@@ -925,23 +924,14 @@ class SwipeCardLiteEditor extends HTMLElement {
           </div>
           <div class="hint">0 = always visible</div>
 
-          <div class="row" style="margin-top: 8px;">
-            <label>State entity</label>
-            <div id="state_entity_container"></div>
-          </div>
-          <div class="hint">Sync current slide with an input_number entity</div>
+          <div id="entity_form_container" style="margin-top: 8px;"></div>
+          <div class="hint">State entity syncs slide position. Auto-reset entity controls reset behavior.</div>
 
           <div class="row" style="margin-top: 8px;">
             <label>Reset timeout (ms)</label>
             <ha-textfield id="reset_after_timeout" type="number" value="${this._config.enable_reset_after ? (this._config.reset_after_timeout || 30000) : 0}"></ha-textfield>
           </div>
           <div class="hint">0 = disabled. Returns to first slide after timeout</div>
-
-          <div class="row" style="margin-top: 8px;">
-            <label>Auto-reset toggle entity</label>
-            <div id="auto_reset_entity_container"></div>
-          </div>
-          <div class="hint">Entity to enable/disable auto-reset</div>
         </div>
 
         <!-- Layout Section -->
@@ -981,9 +971,13 @@ class SwipeCardLiteEditor extends HTMLElement {
 
     this._attachEventListeners();
 
-    // Set hass on entity pickers after rendering
-    if (this._hass) {
-      this._updateEntityPickers();
+    // Add entity form after rendering
+    const formContainer = this.querySelector('#entity_form_container');
+    if (formContainer && this._hass) {
+      const form = this._createEntityForm();
+      if (form) {
+        formContainer.appendChild(form);
+      }
     }
   }
 
