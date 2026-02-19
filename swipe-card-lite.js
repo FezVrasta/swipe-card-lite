@@ -3,7 +3,7 @@
  * Uses native CSS scroll-snap for smooth swiping with infinite loop support
  */
 
-const VERSION = '2.2.2';
+const VERSION = '2.3.0';
 
 class SwipeCardLite extends HTMLElement {
   constructor() {
@@ -709,11 +709,10 @@ class SwipeCardLite extends HTMLElement {
   }
 }
 
-// Editor
+// Editor - No shadow DOM to allow ha-entity-picker to render correctly
 class SwipeCardLiteEditor extends HTMLElement {
   constructor() {
     super();
-    this.attachShadow({ mode: 'open' });
     this._config = {};
     this._hass = null;
   }
@@ -725,6 +724,48 @@ class SwipeCardLiteEditor extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    // Update entity pickers when hass becomes available
+    this._updateEntityPickers();
+  }
+
+  _updateEntityPickers() {
+    if (!this._hass) return;
+
+    // Create state entity picker
+    const stateContainer = this.querySelector('#state_entity_container');
+    if (stateContainer && !stateContainer.querySelector('ha-entity-picker')) {
+      const picker = document.createElement('ha-entity-picker');
+      picker.hass = this._hass;
+      picker.value = this._config.state_entity || '';
+      picker.includeDomains = ['input_number'];
+      picker.allowCustomEntity = true;
+      picker.addEventListener('value-changed', (e) => {
+        this._config = { ...this._config, state_entity: e.detail.value || null };
+        this._fireConfigChanged();
+      });
+      stateContainer.appendChild(picker);
+    } else if (stateContainer) {
+      const picker = stateContainer.querySelector('ha-entity-picker');
+      if (picker) picker.hass = this._hass;
+    }
+
+    // Create auto-reset entity picker
+    const autoResetContainer = this.querySelector('#auto_reset_entity_container');
+    if (autoResetContainer && !autoResetContainer.querySelector('ha-entity-picker')) {
+      const picker = document.createElement('ha-entity-picker');
+      picker.hass = this._hass;
+      picker.value = this._config.auto_reset_enabled_entity || '';
+      picker.includeDomains = ['input_boolean', 'binary_sensor', 'switch'];
+      picker.allowCustomEntity = true;
+      picker.addEventListener('value-changed', (e) => {
+        this._config = { ...this._config, auto_reset_enabled_entity: e.detail.value || null };
+        this._fireConfigChanged();
+      });
+      autoResetContainer.appendChild(picker);
+    } else if (autoResetContainer) {
+      const picker = autoResetContainer.querySelector('ha-entity-picker');
+      if (picker) picker.hass = this._hass;
+    }
   }
 
   get hass() {
@@ -740,26 +781,26 @@ class SwipeCardLiteEditor extends HTMLElement {
   _render() {
     const cards = this._config.cards || [];
 
-    this.shadowRoot.innerHTML = `
+    this.innerHTML = `
       <style>
-        .editor {
+        .swipe-editor {
           display: flex;
           flex-direction: column;
           gap: 16px;
         }
-        .section {
+        .swipe-editor .section {
           border: 1px solid var(--divider-color);
           border-radius: 8px;
           padding: 12px;
         }
-        .section-title {
+        .swipe-editor .section-title {
           font-weight: 500;
           margin-bottom: 12px;
           display: flex;
           align-items: center;
           gap: 8px;
         }
-        .card-item {
+        .swipe-editor .card-item {
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -768,29 +809,29 @@ class SwipeCardLiteEditor extends HTMLElement {
           border-radius: 6px;
           margin-bottom: 8px;
         }
-        .card-item:last-child {
+        .swipe-editor .card-item:last-child {
           margin-bottom: 0;
         }
-        .card-info {
+        .swipe-editor .card-info {
           display: flex;
           align-items: center;
           gap: 8px;
           flex: 1;
           cursor: pointer;
         }
-        .card-type {
+        .swipe-editor .card-type {
           font-size: 14px;
           color: var(--primary-text-color);
         }
-        .card-actions {
+        .swipe-editor .card-actions {
           display: flex;
           gap: 4px;
         }
-        .card-actions ha-icon-button {
+        .swipe-editor .card-actions ha-icon-button {
           --mdc-icon-button-size: 32px;
           --mdc-icon-size: 18px;
         }
-        .add-card {
+        .swipe-editor .add-card {
           display: flex;
           align-items: center;
           justify-content: center;
@@ -802,32 +843,32 @@ class SwipeCardLiteEditor extends HTMLElement {
           transition: all 0.2s;
           margin-top: 8px;
         }
-        .add-card:hover {
+        .swipe-editor .add-card:hover {
           border-color: var(--primary-color);
           color: var(--primary-color);
         }
-        .row {
+        .swipe-editor .row {
           display: flex;
           align-items: center;
           justify-content: space-between;
           padding: 4px 0;
         }
-        .row label {
+        .swipe-editor .row label {
           font-size: 14px;
         }
-        ha-textfield {
+        .swipe-editor ha-textfield {
           width: 120px;
         }
-        ha-entity-picker {
+        .swipe-editor ha-entity-picker {
           width: 200px;
         }
-        .hint {
+        .swipe-editor .hint {
           font-size: 12px;
           color: var(--secondary-text-color);
           margin-top: 4px;
         }
       </style>
-      <div class="editor">
+      <div class="swipe-editor">
         <!-- Cards Section -->
         <div class="section">
           <div class="section-title">
@@ -885,6 +926,12 @@ class SwipeCardLiteEditor extends HTMLElement {
           <div class="hint">0 = always visible</div>
 
           <div class="row" style="margin-top: 8px;">
+            <label>State entity</label>
+            <div id="state_entity_container"></div>
+          </div>
+          <div class="hint">Sync current slide with an input_number entity</div>
+
+          <div class="row" style="margin-top: 8px;">
             <label>Reset timeout (ms)</label>
             <ha-textfield id="reset_after_timeout" type="number" value="${this._config.enable_reset_after ? (this._config.reset_after_timeout || 30000) : 0}"></ha-textfield>
           </div>
@@ -892,7 +939,7 @@ class SwipeCardLiteEditor extends HTMLElement {
 
           <div class="row" style="margin-top: 8px;">
             <label>Auto-reset toggle entity</label>
-            <ha-entity-picker id="auto_reset_enabled_entity" allow-custom-entity></ha-entity-picker>
+            <div id="auto_reset_entity_container"></div>
           </div>
           <div class="hint">Entity to enable/disable auto-reset</div>
         </div>
@@ -933,16 +980,21 @@ class SwipeCardLiteEditor extends HTMLElement {
     `;
 
     this._attachEventListeners();
+
+    // Set hass on entity pickers after rendering
+    if (this._hass) {
+      this._updateEntityPickers();
+    }
   }
 
   _attachEventListeners() {
     // Add card
-    this.shadowRoot.getElementById('add-card')?.addEventListener('click', () => {
+    this.querySelector('#add-card')?.addEventListener('click', () => {
       this._addCard();
     });
 
     // Card actions
-    this.shadowRoot.querySelectorAll('[data-action]').forEach(el => {
+    this.querySelectorAll('[data-action]').forEach(el => {
       el.addEventListener('click', () => {
         const action = el.dataset.action;
         const index = parseInt(el.dataset.index);
@@ -972,22 +1024,22 @@ class SwipeCardLiteEditor extends HTMLElement {
     });
 
     // Behavior settings
-    this.shadowRoot.getElementById('infinite_loop')?.addEventListener('change', (e) => {
+    this.querySelector('#infinite_loop')?.addEventListener('change', (e) => {
       this._config = { ...this._config, loop_mode: e.target.checked ? 'infinite' : 'none' };
       this._fireConfigChanged();
     });
 
-    this.shadowRoot.getElementById('show_pagination')?.addEventListener('change', (e) => {
+    this.querySelector('#show_pagination')?.addEventListener('change', (e) => {
       this._config = { ...this._config, show_pagination: e.target.checked };
       this._fireConfigChanged();
     });
 
-    this.shadowRoot.getElementById('auto_hide_pagination')?.addEventListener('change', (e) => {
+    this.querySelector('#auto_hide_pagination')?.addEventListener('change', (e) => {
       this._config = { ...this._config, auto_hide_pagination: parseInt(e.target.value) || 0 };
       this._fireConfigChanged();
     });
 
-    this.shadowRoot.getElementById('reset_after_timeout')?.addEventListener('change', (e) => {
+    this.querySelector('#reset_after_timeout')?.addEventListener('change', (e) => {
       const value = parseInt(e.target.value) || 0;
       this._config = {
         ...this._config,
@@ -997,20 +1049,9 @@ class SwipeCardLiteEditor extends HTMLElement {
       this._fireConfigChanged();
     });
 
-    const autoResetEntityPicker = this.shadowRoot.getElementById('auto_reset_enabled_entity');
-    if (autoResetEntityPicker) {
-      autoResetEntityPicker.hass = this._hass;
-      autoResetEntityPicker.value = this._config.auto_reset_enabled_entity || '';
-      autoResetEntityPicker.includeDomains = ['input_boolean', 'binary_sensor', 'switch'];
-      autoResetEntityPicker.addEventListener('value-changed', (e) => {
-        this._config = { ...this._config, auto_reset_enabled_entity: e.detail.value || null };
-        this._fireConfigChanged();
-      });
-    }
-
     // Layout settings
     ['slide_width', 'slide_height', 'slide_padding', 'slide_gap', 'border_radius'].forEach(key => {
-      this.shadowRoot.getElementById(key)?.addEventListener('change', (e) => {
+      this.querySelector(`#${key}`)?.addEventListener('change', (e) => {
         this._config = { ...this._config, [key]: e.target.value.trim() || null };
         this._fireConfigChanged();
       });
