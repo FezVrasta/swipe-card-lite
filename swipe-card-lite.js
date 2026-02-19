@@ -3,7 +3,7 @@
  * Uses native CSS scroll-snap for smooth swiping with infinite loop support
  */
 
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 
 class SwipeCardLite extends HTMLElement {
   constructor() {
@@ -25,6 +25,11 @@ class SwipeCardLite extends HTMLElement {
     this._jumping = false;
     this._userScrolling = false;  // Track active user scrolling to prevent sync conflicts
     this._scrollSettleTimeout = null;
+    this._rafPending = false;  // RAF throttle flag for scroll handler
+    this._cachedPagination = null;  // Cached pagination element
+    this._cachedScroller = null;    // Cached scroller element
+    this._lastSyncedValue = null;   // Track last value synced to state entity
+    this._syncedAt = 0;             // Timestamp of last sync
   }
 
   setConfig(config) {
@@ -112,6 +117,10 @@ class SwipeCardLite extends HTMLElement {
     if (this._paginationHideTimeout) clearTimeout(this._paginationHideTimeout);
     if (this._scrollTimeout) clearTimeout(this._scrollTimeout);
     if (this._scrollSettleTimeout) clearTimeout(this._scrollSettleTimeout);
+    // Clear cached element references
+    this._cachedPagination = null;
+    this._cachedScroller = null;
+    this._rafPending = false;
   }
 
   async _buildCards() {
@@ -222,6 +231,8 @@ class SwipeCardLite extends HTMLElement {
           display: block;
           position: relative;
           isolation: isolate;
+          /* Contain layout/paint to isolate from rest of page */
+          contain: layout style;
         }
         .scroll-container {
           display: flex;
@@ -234,6 +245,10 @@ class SwipeCardLite extends HTMLElement {
           -ms-overflow-style: none;
           will-change: scroll-position;
           transform: translateZ(0);
+          /* Tell browser exactly what touch gestures to expect */
+          touch-action: pan-x;
+          /* Prevent scroll chaining to parent elements */
+          overscroll-behavior-x: contain;
         }
         .scroll-container.snap-enabled {
           scroll-snap-type: x mandatory;
@@ -250,6 +265,8 @@ class SwipeCardLite extends HTMLElement {
           scroll-snap-stop: always;
           ${this._config.border_radius ? `border-radius: ${this._config.border_radius}; overflow: hidden;` : ''}
           ${this._config.slide_gap ? `margin-right: ${this._config.slide_gap};` : ''}
+          /* Promote each slide to its own compositing layer */
+          will-change: transform;
         }
         .slide:last-child {
           margin-right: 0;
@@ -381,6 +398,10 @@ class SwipeCardLite extends HTMLElement {
         this._goToRealIndex(realIndex, true);
       });
     });
+
+    // Cache element references for performance
+    this._cachedPagination = this.shadowRoot.getElementById('pagination');
+    this._cachedScroller = this.shadowRoot.getElementById('scroller');
   }
 
   _getSlideWidth() {
@@ -398,26 +419,59 @@ class SwipeCardLite extends HTMLElement {
   _handleScroll() {
     if (this._jumping) return;
 
-    this._showPagination();
+    // Mark as user scrolling to prevent state sync bounce-back
+    this._userScrolling = true;
+    if (this._scrollSettleTimeout) clearTimeout(this._scrollSettleTimeout);
 
-    // Add scrolling class for CarPlay-style frosted pill effect
-    const pagination = this.shadowRoot?.getElementById('pagination');
-    if (pagination && !pagination.classList.contains('scrolling')) {
-      pagination.classList.add('scrolling');
-    }
+    // Throttle to once per animation frame for performance
+    if (this._rafPending) return;
+    this._rafPending = true;
 
-    if (this._scrollTimeout) clearTimeout(this._scrollTimeout);
+    requestAnimationFrame(() => {
+      this._rafPending = false;
+      if (this._jumping) return;
 
-    // Use longer timeout for slower devices
-    this._scrollTimeout = setTimeout(() => {
-      this._onScrollEnd();
-    }, 150);
+      // Use cached pagination element - no DOM query during scroll
+      const pagination = this._cachedPagination;
+      if (pagination) {
+        pagination.classList.remove('hidden');
+        if (!pagination.classList.contains('scrolling')) {
+          pagination.classList.add('scrolling');
+        }
+      }
+      if (this._paginationHideTimeout) clearTimeout(this._paginationHideTimeout);
+
+      // Update pagination dot in real-time based on scroll position
+      const scroller = this._cachedScroller;
+      if (scroller) {
+        const slideWidth = this._getSlideWidth();
+        if (slideWidth > 0) {
+          const scrollPos = scroller.scrollLeft;
+          const domIndex = Math.round(scrollPos / slideWidth);
+          let realIndex = this._isInfiniteMode ? domIndex - 1 : domIndex;
+          // Clamp to valid range (handle clone positions)
+          realIndex = Math.max(0, Math.min(realIndex, this._cards.length - 1));
+          if (realIndex !== this._realIndex) {
+            this._realIndex = realIndex;
+            this._currentIndex = domIndex;
+            this._updatePagination();
+          }
+        }
+      }
+
+      if (this._scrollTimeout) clearTimeout(this._scrollTimeout);
+
+      // Use longer timeout for slower devices
+      this._scrollTimeout = setTimeout(() => {
+        this._onScrollEnd();
+      }, 150);
+    });
   }
 
   _onScrollEnd() {
     if (this._jumping) return;
 
-    const scroller = this.shadowRoot?.getElementById('scroller');
+    const scroller = this._cachedScroller;
     if (!scroller) return;
 
     const slideWidth = this._getSlideWidth();
@@ -458,19 +512,19 @@ class SwipeCardLite extends HTMLElement {
     if (this._config.enable_reset_after) this._resetResetTimer();
     if (this._config.auto_hide_pagination > 0) this._startPaginationHideTimer();
 
-    // Remove scrolling class for CarPlay-style effect
-    const pagination = this.shadowRoot?.getElementById('pagination');
+    // Remove scrolling class for CarPlay blur effect
+    const pagination = this._cachedPagination;
     if (pagination) pagination.classList.remove('scrolling');
 
     // Clear user scrolling flag after state sync has time to propagate
     if (this._scrollSettleTimeout) clearTimeout(this._scrollSettleTimeout);
     this._scrollSettleTimeout = setTimeout(() => {
       this._userScrolling = false;
-    }, 300);
+    }, 500);
   }
 
   _jumpToSlide(targetDomIndex, targetRealIndex) {
-    const scroller = this.shadowRoot?.getElementById('scroller');
+    const scroller = this._cachedScroller;
     if (!scroller) return;
 
     this._jumping = true;
@@ -494,21 +548,22 @@ class SwipeCardLite extends HTMLElement {
         this._syncToStateEntity();
         if (this._config.enable_reset_after) this._resetResetTimer();
         if (this._config.auto_hide_pagination > 0) this._startPaginationHideTimer();
-        // Remove scrolling class for CarPlay-style effect
-        const pagination = this.shadowRoot?.getElementById('pagination');
+        // Remove scrolling class for CarPlay blur effect
+        const pagination = this._cachedPagination;
         if (pagination) pagination.classList.remove('scrolling');
       });
     });
   }
 
   _updatePagination() {
-    const dots = this.shadowRoot?.querySelectorAll('.pagination-dot');
-    if (!dots) return;
+    const pagination = this._cachedPagination;
+    if (!pagination) return;
+    const dots = pagination.querySelectorAll('.pagination-dot');
     dots.forEach((dot, i) => dot.classList.toggle('active', i === this._realIndex));
   }
 
   _goToRealIndex(realIndex, smooth = true) {
-    const scroller = this.shadowRoot?.getElementById('scroller');
+    const scroller = this._cachedScroller;
     if (!scroller) return;
 
     // Clamp real index
@@ -554,6 +609,7 @@ class SwipeCardLite extends HTMLElement {
     if (isNaN(targetIndex)) return;
 
     // input_number is 1-based
+    const stateValue = targetIndex;
     if (entity.startsWith('input_number.')) {
       targetIndex = targetIndex - 1;
     }
@@ -563,6 +619,12 @@ class SwipeCardLite extends HTMLElement {
     // Compare against current position, not old hass state
     // This ensures we react even if hass object references are reused
     if (targetIndex === this._realIndex) return;
+
+    // Ignore state updates that match what we just synced (within 2 seconds)
+    // This prevents bounce-back when HA echoes our own state change
+    if (this._lastSyncedValue === stateValue && (Date.now() - this._syncedAt) < 2000) {
+      return;
+    }
 
     this._stateUpdateInProgress = true;
     this._goToRealIndex(targetIndex, true);
@@ -578,6 +640,10 @@ class SwipeCardLite extends HTMLElement {
       const currentState = this._hass.states[entity]?.state;
       if (parseInt(currentState, 10) === targetValue) return;
 
+      // Track what we're syncing to ignore bounce-back
+      this._lastSyncedValue = targetValue;
+      this._syncedAt = Date.now();
+
       this._hass.callService('input_number', 'set_value', {
         entity_id: entity,
         value: targetValue
@@ -588,7 +654,7 @@ class SwipeCardLite extends HTMLElement {
   // ===== Pagination Auto-Hide =====
 
   _showPagination() {
-    const pagination = this.shadowRoot?.getElementById('pagination');
+    const pagination = this._cachedPagination;
     if (pagination) pagination.classList.remove('hidden');
     if (this._paginationHideTimeout) clearTimeout(this._paginationHideTimeout);
   }
@@ -598,7 +664,7 @@ class SwipeCardLite extends HTMLElement {
     if (this._paginationHideTimeout) clearTimeout(this._paginationHideTimeout);
 
     this._paginationHideTimeout = setTimeout(() => {
-      const pagination = this.shadowRoot?.getElementById('pagination');
+      const pagination = this._cachedPagination;
       if (pagination) pagination.classList.add('hidden');
     }, this._config.auto_hide_pagination);
   }
