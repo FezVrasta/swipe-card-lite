@@ -3,7 +3,7 @@
  * Uses native CSS scroll-snap for smooth swiping with infinite loop support
  */
 
-const VERSION = '2.2.1';
+const VERSION = '2.2.2';
 
 class SwipeCardLite extends HTMLElement {
   constructor() {
@@ -818,6 +818,9 @@ class SwipeCardLiteEditor extends HTMLElement {
         ha-textfield {
           width: 120px;
         }
+        ha-entity-picker {
+          width: 200px;
+        }
         .hint {
           font-size: 12px;
           color: var(--secondary-text-color);
@@ -889,7 +892,7 @@ class SwipeCardLiteEditor extends HTMLElement {
 
           <div class="row" style="margin-top: 8px;">
             <label>Auto-reset toggle entity</label>
-            <ha-textfield id="auto_reset_enabled_entity" value="${this._config.auto_reset_enabled_entity || ''}" placeholder="input_boolean.xxx"></ha-textfield>
+            <ha-entity-picker id="auto_reset_enabled_entity" allow-custom-entity></ha-entity-picker>
           </div>
           <div class="hint">Entity to enable/disable auto-reset</div>
         </div>
@@ -994,10 +997,16 @@ class SwipeCardLiteEditor extends HTMLElement {
       this._fireConfigChanged();
     });
 
-    this.shadowRoot.getElementById('auto_reset_enabled_entity')?.addEventListener('change', (e) => {
-      this._config = { ...this._config, auto_reset_enabled_entity: e.target.value || null };
-      this._fireConfigChanged();
-    });
+    const autoResetEntityPicker = this.shadowRoot.getElementById('auto_reset_enabled_entity');
+    if (autoResetEntityPicker) {
+      autoResetEntityPicker.hass = this._hass;
+      autoResetEntityPicker.value = this._config.auto_reset_enabled_entity || '';
+      autoResetEntityPicker.includeDomains = ['input_boolean', 'binary_sensor', 'switch'];
+      autoResetEntityPicker.addEventListener('value-changed', (e) => {
+        this._config = { ...this._config, auto_reset_enabled_entity: e.detail.value || null };
+        this._fireConfigChanged();
+      });
+    }
 
     // Layout settings
     ['slide_width', 'slide_height', 'slide_padding', 'slide_gap', 'border_radius'].forEach(key => {
